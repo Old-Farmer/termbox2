@@ -736,6 +736,24 @@ const char *tb_version(void);
 int tb_iswprint(uint32_t ch);
 int tb_wcwidth(uint32_t ch);
 
+/* Multi-codepoint width calculation callback
+ *
+ * Function pointer type for custom multi-codepoint width calculation.
+ * Parameters:
+ *   ch  - Pointer to array of codepoints
+ *   nch - Number of codepoints in array
+ * Returns:
+ *   Combined width of all codepoints, or -1 if not printable
+ */
+typedef int (*tb_wcswidth_fn)(uint32_t *ch, size_t nch);
+
+/* Register custom multi-codepoint width calculation function
+ *
+ * Allows replacement of the default tb_wcswidth implementation.
+ * Pass NULL to restore default behavior.
+ */
+void tb_set_wcswidth_fn(tb_wcswidth_fn fn);
+
 /* Deprecation notice!
  *
  * The following will be removed in version 3.x (ABI version 3):
@@ -840,6 +858,7 @@ struct tb_global {
     int initialized;
     int (*fn_extract_esc_pre)(struct tb_event *, size_t *);
     int (*fn_extract_esc_post)(struct tb_event *, size_t *);
+    tb_wcswidth_fn wcswidth_fn;
     char errbuf[1024];
 };
 
@@ -4245,6 +4264,10 @@ int tb_wcwidth(uint32_t ch) {
 }
 
 static int tb_wcswidth(uint32_t *ch, size_t nch) {
+    // Use custom callback if registered
+    if (global.wcswidth_fn) {
+        return global.wcswidth_fn(ch, nch);
+    }
 #ifdef TB_OPT_LIBC_WCHAR
     return wcswidth((wchar_t *)ch, nch);
 #else
@@ -4287,6 +4310,10 @@ static int tb_iswprint_ex(uint32_t ch, int *w) {
     if (w) *w = -1; // invalid codepoint
     return 0;
 #endif
+}
+
+void tb_set_wcswidth_fn(tb_wcswidth_fn fn) {
+    global.wcswidth_fn = fn;
 }
 
 #endif // TB_IMPL
