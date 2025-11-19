@@ -351,6 +351,7 @@ extern "C" {
 #define TB_ERR_RESIZE_READ      -20
 #define TB_ERR_RESIZE_SSCANF    -21
 #define TB_ERR_CAP_COLLISION    -22
+#define TB_ERR_FCNTL            -23
 
 #define TB_ERR_SELECT           TB_ERR_POLL
 #define TB_ERR_RESIZE_SELECT    TB_ERR_RESIZE_POLL
@@ -2330,6 +2331,7 @@ static int bytebuf_reserve(struct bytebuf *b, size_t sz);
 static int bytebuf_free(struct bytebuf *b);
 static int tb_iswprint_ex(uint32_t ch, int *width);
 static int tb_wcswidth(uint32_t *ch, size_t nch);
+static int set_nonblocking(int fd, int enable);
 
 int tb_init(void) {
     return tb_init_file("/dev/tty");
@@ -2835,6 +2837,7 @@ const char *tb_strerror(int err) {
         case TB_ERR_RESIZE_WRITE:
         case TB_ERR_RESIZE_POLL:
         case TB_ERR_RESIZE_READ:
+        case TB_ERR_FCNTL:
         default:
             strerror_r(global.last_errno, global.errbuf, sizeof(global.errbuf));
             return (const char *)global.errbuf;
@@ -3477,12 +3480,25 @@ static int wait_event(struct tb_event *event, int timeout) {
         int resize_has_events = (FD_ISSET(global.resize_pipefd[0], &fds));
 
         if (tty_has_events) {
-            ssize_t read_rv = read(global.rfd, buf, sizeof(buf));
-            if (read_rv < 0) {
+            if ((rv = set_nonblocking(global.rfd, 1)) == -1) {
                 global.last_errno = errno;
-                return TB_ERR_READ;
-            } else if (read_rv > 0) {
-                bytebuf_nputs(&global.in, buf, read_rv);
+                return TB_ERR_FCNTL;
+            }
+            while (1) {
+                ssize_t read_rv = read(global.rfd, buf, sizeof(buf));
+                if (read_rv < 0) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                        break;
+                    }
+                    global.last_errno = errno;
+                    return TB_ERR_READ;
+                } else if (read_rv > 0) {
+                    bytebuf_nputs(&global.in, buf, read_rv);
+                }
+            }
+            if ((rv = set_nonblocking(global.rfd, 0)) == -1) {
+                global.last_errno = errno;
+                return TB_ERR_FCNTL;
             }
         }
 
@@ -4287,6 +4303,19 @@ static int tb_iswprint_ex(uint32_t ch, int *w) {
     if (w) *w = -1; // invalid codepoint
     return 0;
 #endif
+}
+
+static int set_nonblocking(int fd, int enable) {
+    int oldflags = fcntl (fd, F_GETFL, 0);
+    if (oldflags == -1) {
+        return -1;
+    }
+    if (enable != 0) {
+        oldflags |= O_NONBLOCK;
+    } else {
+        oldflags &= ~O_NONBLOCK;
+    }
+    return fcntl (fd, F_SETFL, oldflags);
 }
 
 #endif // TB_IMPL
