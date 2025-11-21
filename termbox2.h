@@ -3509,25 +3509,6 @@ static int wait_event(struct tb_event *event, int timeout) {
                     if (errno == EAGAIN || errno == EWOULDBLOCK) {
                         break;
                     }
-                    global.last_errno = errno;
-                    return TB_ERR_READ;
-                } else if (read_rv > 0) {
-                    bytebuf_nputs(&global.in, buf, read_rv);
-                }
-            }
-            if ((rv = set_nonblocking(global.rfd, 0)) == -1) {
-                global.last_errno = errno;
-                return TB_ERR_FCNTL;
-            if ((rv = set_nonblocking(global.rfd, 1)) == -1) {
-                global.last_errno = errno;
-                return TB_ERR_FCNTL;
-            }
-            while (1) {
-                ssize_t read_rv = read(global.rfd, buf, sizeof(buf));
-                if (read_rv < 0) {
-                    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                        break;
-                    }
                     if ((rv = set_nonblocking(global.rfd, 0)) == -1) {
                         global.last_errno = errno;
                         return TB_ERR_FCNTL;
